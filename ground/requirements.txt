@@ -1,0 +1,2 @@
+pyserial>=3.5
+plotly>=5.20

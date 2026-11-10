@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lantern Ground Station</title>
+<script src="/static/plotly.min.js"></script>
+<style>
+  :root { --bg:#0b0f14; --panel:#131a22; --line:#23303d; --fg:#e6edf3; --dim:#8b98a5; --up:#3fb950; --down:#f85149; --warn:#d29922; --acc:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  header { display:flex; align-items:baseline; gap:16px; padding:12px 20px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:16px; margin:0; letter-spacing:.08em; }
+  header .sub { color:var(--dim); }
+  main { display:grid; grid-template-columns: 1fr 1fr; gap:14px; padding:14px 20px; }
+  @media (max-width: 1000px) { main { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; min-height:120px; }
+  .panel h2 { font-size:12px; color:var(--dim); margin:0 0 8px; text-transform:uppercase; letter-spacing:.1em; }
+  .nodes { display:flex; flex-wrap:wrap; gap:10px; }
+  .node { border:1px solid var(--line); border-radius:6px; padding:8px 10px; min-width:200px; flex:1; }
+  .node .id { font-weight:700; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; font-weight:700; }
+  .pill.up { background:rgba(63,185,80,.15); color:var(--up); } .pill.down { background:rgba(248,81,73,.15); color:var(--down); }
+  .kv { color:var(--dim); } .kv b { color:var(--fg); font-weight:600; }
+  .feed { max-height:320px; overflow:auto; }
+  .ev { display:grid; grid-template-columns: 70px 70px 110px 1fr; gap:8px; padding:3px 0; border-bottom:1px dashed var(--line); }
+  .ev.unknown { color:var(--warn); } .ev.infra { color:var(--acc); }
+  .alert { border:1px solid var(--warn); border-left:4px solid var(--warn); border-radius:6px; padding:8px 10px; margin-bottom:8px; }
+  .alert.confirm { border-color:var(--down); } .alert.dismiss { opacity:.5; }
+  .alert .sum { font-weight:700; }
+  button { background:#1f2a36; color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:3px 10px; cursor:pointer; font:inherit; }
+  button.c { border-color:var(--down); } button.d { border-color:var(--dim); }
+  #spec { height:300px; }
+  .big { font-size:28px; font-weight:700; } .big.unknown { color:var(--warn); }
+  .span2 { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LANTERN · GROUND</h1>
+  <span class="sub" id="clock">—</span>
+  <span class="sub" id="conn">connecting…</span>
+  <span class="sub" style="margin-left:auto"><a href="/api/labels.csv" style="color:var(--acc)">labels.csv</a></span>
+</header>
+<main>
+  <section class="panel span2">
+    <h2>Constellation</h2>
+    <div class="nodes" id="nodes"><span class="kv">waiting for heartbeats…</span></div>
+  </section>
+
+  <section class="panel">
+    <h2>Correlation alerts <span class="kv">(anomaly + second node within window)</span></h2>
+    <div id="alerts"><span class="kv">none yet</span></div>
+  </section>
+
+  <section class="panel">
+    <h2>Latest spectral verdict</h2>
+    <div id="verdict"><span class="big">—</span></div>
+    <div id="spec"></div>
+  </section>
+
+  <section class="panel span2">
+    <h2>Event feed <span class="kv">(newest first · ~40 bytes each · late = seconds buffered on the node)</span></h2>
+    <div class="feed" id="feed"></div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const nodes = {}, alerts = {}, labels = {};
+let latestSpec = {};
+
+function fmtT(t){ const d = new Date(t*1000); return d.toTimeString().slice(0,8); }
+setInterval(()=>{ $('#clock').textContent = new Date().toTimeString().slice(0,8); }, 1000);
+
+function renderNodes(){
+  const el = $('#nodes'); el.innerHTML = '';
+  const ids = Object.keys(nodes).sort();
+  if(!ids.length){ el.innerHTML = '<span class="kv">waiting for heartbeats…</span>'; return; }
+  for(const id of ids){
+    const n = nodes[id];
+    el.insertAdjacentHTML('beforeend', `
+      <div class="node">
+        <div><span class="id">${id}</span> <span class="pill ${n.up?'up':'down'}">${n.up?'LINK UP':'LINK DOWN'}</span></div>
+        <div class="kv">last seen <b>${n.age}s</b> ago · buffered on node <b>${n.pending}</b> · events <b>${n.events}</b></div>
+        <div class="kv">state <b>${n.cls||'—'}</b> · via <b>${n.transport}</b></div>
+      </div>`);
+  }
+}
+
+function renderAlerts(){
+  const el = $('#alerts'); el.innerHTML='';
+  const list = Object.values(alerts).sort((a,b)=>b.id-a.id);
+  if(!list.length){ el.innerHTML='<span class="kv">none yet</span>'; return; }
+  for(const a of list){
+    const v = a.verdict || '';
+    el.insertAdjacentHTML('beforeend', `
+      <div class="alert ${v}">
+        <div class="sum">#${a.id} ${fmtT(a.t)} — ${a.summary}</div>
+        <div class="kv">${a.events.map(e=>`${e.n}:${e.cls}${e.l&&e.l.length?' ['+e.l.join(' ')+']':''}`).join(' · ')}</div>
+        <div style="margin-top:6px">
+          ${v ? `<span class="kv">verdict: <b>${v}</b> ${a.note||''}</span>` :
+          `<button class="c" onclick="label(${a.event_ids[0]},'confirm',${a.id})">Confirm</button>
+           <button class="d" onclick="label(${a.event_ids[0]},'dismiss',${a.id})">Dismiss</button>`}
+        </div>
+      </div>`);
+  }
+}
+
+async function label(eventId, verdict, alertId){
+  const note = verdict==='confirm' ? prompt('Note for the record (optional):','') || '' : 'operator dismissed';
+  await fetch('/label',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_id:eventId,verdict,note})});
+  if(alerts[alertId]){ alerts[alertId].verdict=verdict; alerts[alertId].note=note; renderAlerts(); }
+}
+
+function addEvent(e){
+  const cls = e.cls==='unknown' ? 'unknown' : (e.cls||'').startsWith('infrasound') ? 'infra' : '';
+  $('#feed').insertAdjacentHTML('afterbegin', `
+    <div class="ev ${cls}"><span>${fmtT(e.t)}</span><span>${e.n}</span><span>${e.cls}</span>
+    <span>p=${e.p} nov=${e.nov??'-'} ${e.l&&e.l.length?e.l.join(' '):''} ${e.f?('f='+e.f+'Hz'):''} ${e.late>2?('<span class="kv">late '+e.late+'s</span>'):''}</span></div>`);
+  const feed = $('#feed'); while(feed.children.length>200) feed.lastChild.remove();
+  if(e.n && nodes[e.n]){ nodes[e.n].cls = e.cls; }
+  if(!(e.cls||'').startsWith('infrasound')){
+    $('#verdict').innerHTML = `<span class="big ${e.cls==='unknown'?'unknown':''}">${e.cls}</span>
+      <span class="kv"> p=<b>${e.p}</b> novelty=<b>${e.nov}</b> ${e.l&&e.l.length?'lines <b>'+e.l.join(' ')+'</b>':''} from <b>${e.n}</b></span>`;
+  }
+}
+
+function renderSpectrum(sp){
+  const v = sp.v || []; const x = v.map((_,i)=> 340 + (850-340)*(i+0.5)/v.length);
+  Plotly.react('spec', [{x, y:v, type:'scatter', mode:'lines', line:{color:'#58a6ff', width:2}, fill:'tozeroy', fillcolor:'rgba(88,166,255,.15)'}],
+    {margin:{l:36,r:10,t:6,b:34}, paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+     xaxis:{title:'nm (approx, 72 bins)', color:'#8b98a5', gridcolor:'#23303d', range:[340,850]},
+     yaxis:{color:'#8b98a5', gridcolor:'#23303d', range:[0,260], title:'rel'},
+     shapes:[589,671,766,518,388].map(nm=>({type:'line',x0:nm,x1:nm,y0:0,y1:260,line:{color:'#23303d',dash:'dot',width:1}})),
+     annotations:[{x:589,y:250,text:'Na',showarrow:false,font:{color:'#8b98a5',size:10}},{x:671,y:250,text:'Li',showarrow:false,font:{color:'#8b98a5',size:10}},
+                  {x:768,y:250,text:'K',showarrow:false,font:{color:'#8b98a5',size:10}},{x:518,y:250,text:'Mg/Cu',showarrow:false,font:{color:'#8b98a5',size:10}},
+                  {x:388,y:250,text:'CN',showarrow:false,font:{color:'#8b98a5',size:10}}]},
+    {displayModeBar:false, responsive:true});
+}
+
+async function bootstrap(){
+  const s = await (await fetch('/api/state')).json();
+  Object.assign(nodes, s.nodes); renderNodes();
+  (s.events||[]).reverse().forEach(r=>{ const e = JSON.parse(r.body); e.id=r.id; e.late=Math.round(r.rx_t-r.t); addEvent(e); });
+  for(const a of s.alerts||[]){ const ids = a.event_ids.split(',').filter(Boolean).map(Number); alerts[a.id] = {id:a.id,t:a.t,nodes:JSON.parse(a.nodes),event_ids:ids,summary:JSON.parse(a.nodes).join(' & ')+' correlated',events:[],verdict:a.verdict,note:a.note}; }
+  renderAlerts();
+  const sp = Object.values(s.spectra||{})[0]; if(sp) renderSpectrum(sp); else renderSpectrum({v:new Array(72).fill(0)});
+}
+
+function connect(){
+  const es = new EventSource('/stream');
+  es.onopen = ()=> $('#conn').textContent = 'live';
+  es.onerror = ()=> $('#conn').textContent = 'reconnecting…';
+  es.addEventListener('nodes', m => { const d = JSON.parse(m.data); for(const k in d) nodes[k] = Object.assign(nodes[k]||{}, d[k]); renderNodes(); });
+  es.addEventListener('event', m => addEvent(JSON.parse(m.data)));
+  es.addEventListener('alert', m => { const a = JSON.parse(m.data); alerts[a.id]=a; renderAlerts(); });
+  es.addEventListener('label', m => { const l = JSON.parse(m.data); for(const a of Object.values(alerts)) if(a.event_ids.includes(l.event_id)){ a.verdict=l.verdict; a.note=l.note; } renderAlerts(); });
+  es.addEventListener('spectrum', m => renderSpectrum(JSON.parse(m.data)));
+}
+bootstrap().then(connect);
+</script>
+</body>
+</html>

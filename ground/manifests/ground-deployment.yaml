@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lantern
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ground
+  labels: { app: ground }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: ground }
+  template:
+    metadata:
+      labels: { app: ground }
+    spec:
+      hostNetwork: true                 # :5005/udp from nodes, :8080 dashboard
+      containers:
+        - name: ground
+          image: quay.io/CHANGEME/lantern-ground:0.1
+          env:
+            - { name: GS_UDP_PORT, value: "5005" }
+            - { name: HTTP_PORT, value: "8080" }
+            - { name: CORRELATION_WINDOW_S, value: "10" }
+            # Field: also listen on the XBee.   - { name: GS_SERIAL, value: "/dev/xbee?baud=9600" }
+            # EDA:   - { name: EDA_WEBHOOK, value: "http://eda-host:5000/endpoint" }
+          securityContext:
+            privileged: true            # only needed for /dev/xbee; drop when UDP-only
+            runAsUser: 0
+          volumeMounts:
+            - { name: telemetry, mountPath: /var/telemetry }
+            - { name: dev-xbee,  mountPath: /dev/xbee }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 5
+      volumes:
+        - name: telemetry
+          hostPath: { path: /var/telemetry, type: DirectoryOrCreate }
+        - name: dev-xbee
+          hostPath: { path: /dev/xbee, type: CharDevice }

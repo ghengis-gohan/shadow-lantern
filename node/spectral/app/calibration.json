@@ -1,0 +1,5 @@
+{
+  "_comment": "PLACEHOLDER pixel->wavelength polynomial: wl = c0 + c1*p + c2*p^2 + ... Every C12880MA ships with its own coefficients on the Hamamatsu test sheet; paste those here, or fit your own from the emitter LEDs with tools/calibrate.py. These placeholders span ~340..850 nm so the sim runs; they are NOT your sensor.",
+  "coefficients": [340.0, 1.95, -0.0006, 0.0, 0.0, 0.0],
+  "source": "placeholder"
+}

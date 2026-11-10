@@ -1,0 +1,12 @@
+# Add to your existing node Containerfile (the one FROM nvidia-jetpack-for-rhel9 with MicroShift).
+# Assumes your repo layout mirrors this one: node/os/files/ is the tree copied onto /, node/manifests/ is the kustomization.
+
+COPY node/os/files/ /
+COPY node/manifests/ /etc/microshift/manifests/
+RUN chmod 0755 /etc/greenboot/check/required.d/50_lantern_check.sh && \
+    mkdir -p /var/telemetry
+
+# Optional, for a venue with no internet: ship the app image inside the OS image so MicroShift never has to pull.
+# MicroShift reads crio's storage; bootc "logically bound images" land in podman's. The supported bridge is an
+# additional image store — see docs: "Embedding container images for offline use" (microshift / rpm-ostree & bootc).
+# Until that is in place, make sure the node has network on first boot so the spectral image can be pulled once.
