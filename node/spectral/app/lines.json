@@ -1,0 +1,53 @@
+{
+  "_comment": "Line table for the spectral node. Edit without rebuilding: mount over /app/lines.json. Wavelengths in nm. With a 15 nm instrument, lines closer than ~8 nm merge; the table already groups them. min_fraction = share of a material's lines that must be hit to call it present (single-line materials are always 1.0).",
+
+  "materials": {
+    "Na":  { "lines": [589.0],                  "note": "sodium D doublet" },
+    "Li":  { "lines": [670.8],                  "note": "lithium I" },
+    "K":   { "lines": [766.5, 769.9],           "min_fraction": 0.5, "note": "potassium doublet; merged at 15 nm" },
+    "Sr":  { "lines": [460.7, 606.0],           "min_fraction": 0.5, "note": "Sr I 460.7 + SrOH band ~606" },
+    "Cu":  { "lines": [515.3],                  "note": "Cu I 510/515/522 merge into one peak" },
+    "Ca":  { "lines": [422.7, 554.0, 622.0],    "min_fraction": 0.34, "note": "Ca I 422.7, CaOH bands 554 and 622" },
+    "CN":  { "lines": [388.3, 421.6],           "min_fraction": 0.5, "note": "CN violet system; carbon + nitrogen = ablating organic TPS" },
+    "C2":  { "lines": [473.7, 516.5, 563.5],    "min_fraction": 0.34, "note": "C2 Swan bands; collides with Cu/Mg at 515-518" },
+    "Mg":  { "lines": [518.4],                  "note": "Mg b triplet 516.7/517.3/518.4 merged" },
+    "Fe":  { "lines": [438.4, 526.9],           "min_fraction": 0.5, "note": "strongest low-res Fe I groups" },
+    "H":   { "lines": [656.3],                  "note": "H-alpha" },
+    "B":   { "lines": [493.0, 518.0, 545.0, 580.0], "min_fraction": 0.5, "note": "BO2 green bands; boron = UHTC constituent" },
+    "LEDb": { "lines": [450.0],                 "note": "blue pump of white LEDs / screens = clutter, not chemistry" }
+  },
+
+  "classes": {
+    "sodium":          { "materials": ["Na"] },
+    "lithium":         { "materials": ["Li"] },
+    "strontium":       { "materials": ["Sr"] },
+    "copper":          { "materials": ["Cu"] },
+    "potassium":       { "materials": ["K"] },
+    "calcium":         { "materials": ["Ca"] },
+    "meteor":          { "materials": ["Mg", "Na", "Fe", "Ca"], "note": "classic bolide spectrum: Mg b, Na D, Fe groups" },
+    "biomass_burning": { "materials": ["K", "Na"],  "note": "wildfire skin: potassium dominant" },
+    "clutter_led":     { "materials": ["LEDb"],     "note": "LED screen / white LED: 450 nm spike on a hump" },
+    "ablative_tps":    { "materials": ["CN", "C2", "Na", "K"], "held_out": true,
+                         "note": "HELD OUT. The model never saw this. Flip held_out to false to show what a trained class would say." },
+    "uhtc":            { "materials": ["B", "C2"], "held_out": true,
+                         "note": "HELD OUT. Boron/carbon = ZrB2-SiC / C-C leading edge." }
+  },
+
+  "sim": {
+    "_comment": "SPECTRO_SOURCE=sim synthesizes frames from these profiles so the whole chain runs on a laptop. amp is relative; continuum is a flat level 0..1; schedule is [profile, seconds].",
+    "line_fwhm_nm": 15.0,
+    "profiles": {
+      "quiet":        { "lines": [], "continuum": 0.0 },
+      "sodium":       { "lines": [[589.0, 1.0]], "continuum": 0.02 },
+      "lithium":      { "lines": [[670.8, 1.0], [606.0, 0.15]], "continuum": 0.02 },
+      "strontium":    { "lines": [[460.7, 0.4], [606.0, 0.8], [670.8, 0.3]], "continuum": 0.03 },
+      "copper":       { "lines": [[515.3, 1.0], [460.0, 0.25]], "continuum": 0.02 },
+      "potassium":    { "lines": [[768.0, 1.0]], "continuum": 0.01 },
+      "meteor":       { "lines": [[518.4, 0.9], [589.0, 0.7], [438.4, 0.4], [526.9, 0.35], [422.7, 0.4]], "continuum": 0.08 },
+      "clutter_led":  { "lines": [[450.0, 0.8]], "continuum": 0.35 },
+      "incandescent": { "lines": [], "continuum": 0.6 },
+      "ablative_tps": { "lines": [[388.3, 0.6], [421.6, 0.3], [473.7, 0.3], [516.5, 0.7], [563.5, 0.4], [589.0, 0.8], [768.0, 0.5]], "continuum": 0.12 }
+    },
+    "schedule": [["quiet", 4], ["sodium", 6], ["meteor", 6], ["potassium", 5], ["clutter_led", 5], ["ablative_tps", 8], ["strontium", 5]]
+  }
+}
